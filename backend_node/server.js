@@ -62,18 +62,31 @@ async function callGeminiAI(prompt) {
           parts: [{ text: prompt }]
         }]
       }
-      const resp = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' } })
+      
+      console.log('🔄 Calling Gemini API...');
+      const resp = await axios.post(url, body, { 
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000 // 30 seconds timeout
+      })
+      
+      console.log('✅ Gemini API response received');
       const text = resp.data.candidates[0].content.parts[0].text
+      
       try {
-        return JSON.parse(text)
+        const jsonResponse = JSON.parse(text);
+        console.log('✅ Successfully parsed JSON response from Gemini');
+        return jsonResponse;
       } catch (err) {
+        console.log('⚠️ Gemini returned non-JSON, using raw text');
         return { raw: text }
       }
     } catch (error) {
-      console.log('Gemini API error, falling back to heuristic response:', error.message)
+      console.log('❌ Gemini API error:', error.response?.status, error.response?.statusText);
+      console.log('🔄 Falling back to heuristic response');
       return heuristicResponse(prompt)
     }
   } else {
+    console.log('⚠️ No API key found, using heuristic response');
     return heuristicResponse(prompt)
   }
 }
