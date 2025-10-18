@@ -4,152 +4,165 @@ const cors = require('cors')
 const axios = require('axios')
 
 const app = express()
-app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'] }))
+app.use(cors({ 
+  origin: true, // Allow all origins for now
+  credentials: true
+}))
 app.use(express.json())
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY // support either env name
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'text-bison-001'
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-pro'
 
 function buildPrompt(body) {
-  const age = body?.age ?? ''
-  const eye = body?.eye_contact ?? ''
-  const speech = body?.speech_level ?? ''
-  const social = body?.social_response ?? ''
-  const sensory = body?.sensory_reactions ?? ''
-  // Force the model to reply with strict JSON and no extra commentary or markdown.
-  return `You are a concise child development expert. Only output valid JSON (no explanatory text, no markdown fences) in this exact schema:\n{\n  "focus_areas": [string],\n  "therapy_goals": [string],\n  "activities": [string],\n  "notes": string\n}\nUse short, practical items focused on the specific child details below. Do not include additional keys.\nChild details:\n- age: ${age}\n- eye_contact: ${eye}\n- speech_level: ${speech}\n- social_response: ${social}\n- sensory_reactions: ${sensory}\nExamples: focus_areas: ["Eye contact","Social play"], therapy_goals: ["Make brief eye contact 3x/day"], activities: ["Peek-a-boo"], notes: "Short phrase advising next steps"\nRespond now with only the JSON object.`
+  let prompt = `Child age: ${body.age}\nEye contact: ${body.eye_contact}\nSpeech level: ${body.speech_level}\nSocial response: ${body.social_response}\nSensory reactions: ${body.sensory_reactions}\n`;
+  
+  // Include emotion data if available
+  if (body.emotion_data) {
+    const emotion = body.emotion_data;
+    prompt += `\nEmotion Analysis: Primary emotion detected is ${emotion.dominant_emotion} with ${emotion.confidence}% confidence. All emotions detected: ${Object.entries(emotion.all_emotions).map(([e, v]) => `${e}: ${v}%`).join(', ')}.\n`;
+  }
+  
+  prompt += `\nBased on this child's responses${body.emotion_data ? ' and emotional state' : ''}, give 3 short therapy goals and 2 activities that can help improvement. ${body.emotion_data ? 'Consider the detected emotions when providing recommendations.' : ''} Return JSON with keys: focus_areas (list of strings), therapy_goals (list of 3 strings), activities (list of 2 strings).`;
+  
+  return prompt;
 }
 
-function heuristicResponse(body) {
-  const eye = (body?.eye_contact || '').toLowerCase()
-  const speech = (body?.speech_level || '').toLowerCase()
-  const social = (body?.social_response || '').toLowerCase()
-  const sensory = (body?.sensory_reactions || '').toLowerCase()
+async function callGeminiAI(prompt) {
+  if (GEMINI_API_KEY) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`
+      const body = {
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
+      }
+      const resp = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' } })
+      const text = resp.data.candidates[0].content.parts[0].text
+      try {
+        return JSON.parse(text)
+      } catch (err) {
+        return { raw: text }
+      }
+    } catch (error) {
+      console.log('Gemini API error, falling back to heuristic response:', error.message)
+      return heuristicResponse(prompt)
+    }
+  } else {
+    return heuristicResponse(prompt)
+  }
+}
 
+function heuristicResponse(prompt) {
+  const low = prompt.toLowerCase()
   const focus = []
   const goals = []
   const activities = []
-  let notes = ''
 
-  if (/poor|limited|no/.test(eye)) {
+  if (low.includes('eye contact') && (low.includes('poor') || low.includes('no'))) {
     focus.push('Eye contact & social attention')
-    goals.push('Practice brief eye contact during preferred play')
-    activities.push('Turn-taking name games (peek-a-boo)')
+    goals.push('Practice making and holding brief eye contact during play')
   }
-  if (/limited|no|delayed/.test(speech)) {
+  if (low.includes('speech') && (low.includes('no') || low.includes('limited') )) {
     focus.push('Speech & communication')
-    goals.push('Increase functional communication using words/gestures')
-    activities.push('Labeling objects and singing simple songs')
+    goals.push('Increase use of simple words or gestures to request needs')
   }
-  if (/limited|withdrawn|delayed/.test(social)) {
-    focus.push('Social interaction')
-    goals.push('Encourage reciprocal social play')
-    activities.push('Structured turn-taking play')
-  }
-  if (/sensitive|seeking|aversion/.test(sensory)) {
+  if (low.includes('sensory')) {
     focus.push('Sensory processing')
-    goals.push('Build tolerance through graded sensory play')
-    activities.push('Safe textured play (rice, soft toys)')
+    goals.push('Introduce gentle sensory activities to build tolerance')
   }
 
-  // Add more specific recommendations based on age and symptom pattern
-  const ageNum = Number(body?.age) || 0
-  if (ageNum <= 2) {
-    notes = 'Early intervention recommended: focus on play-based routines, parent coaching, and monitoring.'
-    if (!goals.includes('Support joint attention during play')) goals.push('Support joint attention during play')
-    activities.push('Peek-a-boo, simple turn-taking with noisy toys')
-  } else if (ageNum <= 5) {
-    notes = 'Consider structured play sessions and language stimulation; consult a speech therapist if concerns persist.'
-    if (!goals.includes('Improve imitation and turn-taking')) goals.push('Improve imitation and turn-taking')
-    activities.push('Imitation games and simple shared play tasks')
-  } else {
-    notes = 'Work on social routines, functional communication, and school-based supports.'
-    if (!goals.includes('Increase peer interaction in structured settings')) goals.push('Increase peer interaction in structured settings')
-    activities.push('Guided playgroups and brief social scripts practice')
+  // Add emotion-based recommendations
+  if (low.includes('sad') || low.includes('fear')) {
+    focus.push('Emotional regulation & comfort')
+    goals.push('Build emotional comfort through familiar routines and calming activities')
+  }
+  if (low.includes('angry') || low.includes('disgust')) {
+    focus.push('Emotional expression & coping')
+    goals.push('Develop appropriate ways to express frustration and discomfort')
+  }
+  if (low.includes('happy')) {
+    focus.push('Positive reinforcement')
+    goals.push('Use positive emotions to reinforce social engagement and learning')
   }
 
-  // Fill defaults if still short
-  while (goals.length < 4) goals.push('Support daily routines to promote social engagement')
-  while (activities.length < 4) activities.push('Short play-based interaction tasks')
+  while (goals.length < 3) goals.push('Encourage social routines during daily activities')
 
-  if (!focus.length) focus.push('General social communication')
+  if (low.includes('eye contact')) activities.push('Turn-taking peek-a-boo and name games to build gaze')
+  else activities.push('Structured play with short prompts for interaction')
 
-  return { focus_areas: focus.slice(0, 5), therapy_goals: goals.slice(0, 4), activities: activities.slice(0, 4), notes }
+  if (low.includes('speech')) activities.push('Labeling objects and singing simple songs to encourage vocalization')
+  else if (low.includes('sad') || low.includes('fear')) activities.push('Calming sensory activities with favorite textures and gentle music')
+  else activities.push('Sensory play using safe textures (rice, soft toys)')
+
+  return { 
+    focus_areas: focus.length ? focus : ['General social communication'], 
+    therapy_goals: goals, 
+    activities,
+    notes: 'Early intervention recommended: focus on play-based routines, parent coaching, and monitoring.'
+  }
 }
 
-function tryParseJsonFromText(text) {
-  if (!text) return null
-  const first = text.indexOf('{')
-  const last = text.lastIndexOf('}')
-  if (first !== -1 && last !== -1 && last > first) {
-    const part = text.slice(first, last + 1)
-    try { return JSON.parse(part) } catch (e) { /* ignore */ }
-  }
-  try { return JSON.parse(text) } catch (e) { return null }
-}
-
-async function callGemini(prompt) {
-  if (!GEMINI_API_KEY) return null
-  // Use Google Generative Language API REST endpoint
-  const url = `https://generativelanguage.googleapis.com/v1beta2/models/${GEMINI_MODEL}:generateText?key=${encodeURIComponent(GEMINI_API_KEY)}`
-  const body = { prompt: { text: prompt }, temperature: 0.2, maxOutputTokens: 400 }
-  const resp = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' } })
-  const candidates = resp.data?.candidates || []
-  let text = ''
-  if (Array.isArray(candidates) && candidates.length) {
-    // candidates items often have 'output' or 'content' with text fields
-    const c0 = candidates[0]
-    if (typeof c0 === 'string') text = c0
-    else if (c0.output?.length) text = c0.output.map(o => o.content?.map(p => p.text).join('') || o.text).join('')
-    else if (c0.content?.length) text = c0.content.map(p => p.text).join('')
-    else text = JSON.stringify(c0)
-  } else {
-    text = resp.data?.text || JSON.stringify(resp.data)
-  }
-  // Log raw response for debugging (will not be sent to client unless fallback)
-  console.log('Gemini raw response snippet:', (text || '').slice(0, 800))
-  const parsed = tryParseJsonFromText(text)
-  if (parsed) return parsed
-  // If parsing failed, attempt a looser extraction by removing surrounding text and code fences
-  const cleaned = text.replace(/```json|```/gi, '').trim()
-  const parsed2 = tryParseJsonFromText(cleaned)
-  if (parsed2) return parsed2
-  return { raw: text }
-}
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'Server is running',
+    port: process.env.PORT || 4001,
+    message: 'Autism Screening Tool Backend API'
+  })
+})
 
 app.post('/analyze', async (req, res) => {
   try {
+    // Validate required fields
+    const requiredFields = ['age', 'eye_contact', 'speech_level', 'social_response', 'sensory_reactions'];
+    const missingFields = [];
+    
+    // Check if request body exists
+    if (!req.body || typeof req.body !== 'object') {
+      return res.status(400).json({
+        error: 'Invalid request body',
+        message: 'Request body is required and must be a valid JSON object',
+        required_fields: requiredFields
+      });
+    }
+    
+    // Check for missing required fields
+    for (const field of requiredFields) {
+      if (!req.body[field] || req.body[field].toString().trim() === '') {
+        missingFields.push(field);
+      }
+    }
+    
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: `The following fields are required: ${missingFields.join(', ')}`,
+        missing_fields: missingFields,
+        required_fields: requiredFields,
+        example: {
+          age: "2",
+          eye_contact: "Moderate",
+          speech_level: "Passive", 
+          social_response: "Active",
+          sensory_reactions: "Sensitive"
+        }
+      });
+    }
+    
     const prompt = buildPrompt(req.body)
-    // Try Gemini first
-    let aiResult = null
-    try {
-      aiResult = await callGemini(prompt)
-    } catch (e) {
-      console.error('Gemini call failed:', e.response?.data || e.message || e)
-      aiResult = null
-    }
-
-    if (aiResult && aiResult.focus_areas && aiResult.therapy_goals && aiResult.activities) {
-      // Attach original input so frontend can display/save it
-      try { aiResult._input = req.body } catch (e) { /* ignore */ }
-      return res.json(aiResult)
-    }
-
-    // fallback to heuristic (also include raw AI text for debugging if available)
-  const fallback = heuristicResponse(req.body)
-  if (aiResult && aiResult.raw) fallback._ai_raw = aiResult.raw
-  // Also include a short server hint if AI returned something unexpected
-  if (aiResult && !aiResult.raw) fallback._ai_unparsed = true
-  // Attach original input
-  fallback._input = req.body
-  return res.json(fallback)
+    const result = await callGeminiAI(prompt)
+    
+    // Add the input data to the result so frontend can access it
+    result._input = req.body
+    
+    res.json(result)
   } catch (err) {
-    console.error('Unhandled server error:', err)
-    const fallback = heuristicResponse(req.body)
-    fallback._server_error = String(err?.message || err)
-    return res.json(fallback)
+    console.error(err)
+    res.status(500).json({ error: err.message || String(err) })
   }
 })
 
-const PORT = process.env.PORT || 4000
-app.listen(PORT, () => console.log('Backend (node) listening on', PORT))
+const PORT = process.env.PORT || 4001
+app.listen(PORT, () => {
+  console.log(`Backend server running on http://localhost:${PORT}`)
+})
