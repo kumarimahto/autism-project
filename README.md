@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🧠 AI-Assisted Autism Screening & Therapy Recommendation Tool (Secure Edition)
 
 An advanced web application that combines traditional autism screening questionnaires with cutting-edge **100% local emotion detection** technology. This tool provides comprehensive therapy recommendations based on both behavioral assessments and real-time emotion analysis - all while ensuring complete privacy and security.
@@ -253,3 +254,6 @@ cd frontend
 npm install
 npm run dev
 ```
+=======
+# Autism
+>>>>>>> 28ca1fa04b1dad7ace6abb183bdaa0bade023ade
