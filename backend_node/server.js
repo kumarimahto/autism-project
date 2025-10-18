@@ -5,8 +5,34 @@ const axios = require('axios')
 
 const app = express()
 app.use(cors({ 
-  origin: true, // Allow all origins for now
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173', 
+      'http://localhost:3000',
+      'http://localhost:5174',
+      'http://localhost:5175',
+      'https://68f36ce28aeddeb4b223215a--zesty-sunburst-df868b.netlify.app'
+    ];
+    
+    // Allow any Netlify, Vercel, or Render subdomain
+    if (origin.includes('.netlify.app') || 
+        origin.includes('.vercel.app') || 
+        origin.includes('.onrender.com') ||
+        allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Allow all origins for now (temporary fix)
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept']
 }))
 app.use(express.json())
 
