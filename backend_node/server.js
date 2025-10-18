@@ -30,7 +30,7 @@ function buildPrompt(body) {
 async function callGeminiAI(prompt) {
   if (GEMINI_API_KEY) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`
       const body = {
         contents: [{
           parts: [{ text: prompt }]
