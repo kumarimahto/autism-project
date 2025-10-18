@@ -4,36 +4,21 @@ const cors = require('cors')
 const axios = require('axios')
 
 const app = express()
-app.use(cors({ 
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    // List of allowed origins
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173', 
-      'http://localhost:3000',
-      'http://localhost:5174',
-      'http://localhost:5175',
-      'https://68f36ce28aeddeb4b223215a--zesty-sunburst-df868b.netlify.app'
-    ];
-    
-    // Allow any Netlify, Vercel, or Render subdomain
-    if (origin.includes('.netlify.app') || 
-        origin.includes('.vercel.app') || 
-        origin.includes('.onrender.com') ||
-        allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    
-    // Allow all origins for now (temporary fix)
-    return callback(null, true);
-  },
-  credentials: true,
+// Enable CORS for all origins
+app.use(cors({
+  origin: '*',
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept']
 }))
+
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin, X-Requested-With, Accept');
+  res.sendStatus(200);
+});
 app.use(express.json())
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY
