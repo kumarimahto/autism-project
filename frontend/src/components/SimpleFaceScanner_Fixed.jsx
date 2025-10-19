@@ -2,6 +2,27 @@ import React, { useState, useRef, useEffect } from 'react';
 import './SimpleFaceScanner.css';
 import { saveFaceImage, saveEmotionDataOnly } from '../firebase';
 
+
+let faceApiLoaded = false;
+
+const loadFaceAPI = async () => {
+  if (faceApiLoaded) return true;
+  
+  try {
+   
+    if (typeof window !== 'undefined' && window.faceapi) {
+      await window.faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      faceApiLoaded = true;
+      console.log('✅ Face-api.js models loaded successfully');
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('❌ Failed to load face-api.js:', error);
+    return false;
+  }
+};
+
 const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [stream, setStream] = useState(null);
@@ -11,6 +32,8 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
   const [livePreview, setLivePreview] = useState(null);
   const [showLiveEmotions, setShowLiveEmotions] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [useCamera, setUseCamera] = useState(true);
+  const [uploadedImage, setUploadedImage] = useState(null);
 
   
   const videoRef = useRef(null);
@@ -19,7 +42,7 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
   const previewIntervalRef = useRef(null);
   const streamRef = useRef(null);
 
-  // Simple emotion analysis
+  
   const getRandomEmotionAnalysis = () => {
     const emotionPatterns = {
       happy: { base: 45, variance: 25 },
@@ -65,7 +88,6 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
     return resultData;
   };
 
-  // Start camera
   const startCamera = async () => {
     try {
       console.log('Initializing camera...');
@@ -94,7 +116,7 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
     }
   };
 
-  // Start live preview
+ 
   const startLivePreview = () => {
     if (previewIntervalRef.current) {
       clearInterval(previewIntervalRef.current);
@@ -124,7 +146,132 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
     }, 2000);
   };
 
-  // Capture image
+ 
+  const loadFaceAPIModels = async () => {
+    try {
+      if (window.faceapi && window.faceapi.nets && window.faceapi.nets.tinyFaceDetector) {
+        // Check if models are already loaded
+        if (!window.faceapi.nets.tinyFaceDetector.isLoaded) {
+          await window.faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        }
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to load face-api models:', error);
+      return false;
+    }
+  };
+
+  // Validate if image contains a face using face-api.js
+  const validateFaceInImage = async (imageElement) => {
+    try {
+      console.log('🔍 Starting face detection...');
+      
+      // Check image size first
+      if (imageElement.naturalWidth < 100 || imageElement.naturalHeight < 100) {
+        console.log('❌ Image too small for face detection');
+        return false;
+      }
+
+      // Try to load face-api.js models
+      const modelsLoaded = await loadFaceAPIModels();
+      
+      if (!modelsLoaded || !window.faceapi) {
+        console.log('⚠️ Face-api.js not available, using basic validation');
+        // Fallback to basic validation
+        const aspectRatio = imageElement.naturalWidth / imageElement.naturalHeight;
+        return aspectRatio >= 0.5 && aspectRatio <= 2.0 && 
+               imageElement.naturalWidth >= 200 && imageElement.naturalHeight >= 200;
+      }
+
+      // Use face-api.js for actual face detection
+      console.log('🤖 Using face-api.js for detection...');
+      const detections = await window.faceapi.detectAllFaces(imageElement, 
+        new window.faceapi.TinyFaceDetectorOptions({
+          inputSize: 416,
+          scoreThreshold: 0.3
+        })
+      );
+      
+      console.log('📊 Face detection results:', detections.length, 'faces found');
+      
+      if (detections && detections.length > 0) {
+        console.log('✅ Face(s) detected successfully');
+        return true;
+      } else {
+        console.log('❌ No faces detected in image');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('Face detection error:', error);
+      // Fallback to strict basic validation on error
+      console.log('⚠️ Face detection failed, using strict validation');
+      const aspectRatio = imageElement.naturalWidth / imageElement.naturalHeight;
+      // Much stricter validation when face-api fails
+      return aspectRatio >= 0.7 && aspectRatio <= 1.4 && 
+             imageElement.naturalWidth >= 300 && imageElement.naturalHeight >= 300;
+    }
+  };
+
+  // Handle image upload with face validation
+  const handleImageUpload = async (event) => {
+    console.log('📁 File input changed:', event.target.files[0]);
+    const file = event.target.files[0];
+    
+    if (!file || !file.type.startsWith('image/')) {
+      setError('Please select a valid image file');
+      console.error('❌ Invalid file type or no file selected');
+      return;
+    }
+
+    console.log('✅ Valid image file selected:', file.name, file.type);
+    setError('🔍 Checking for face in image...');
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const imageDataUrl = e.target.result;
+      console.log('🖼️ Image loaded as data URL, length:', imageDataUrl.length);
+      
+      // Create an image element to validate
+      const img = new Image();
+      img.onload = async () => {
+        console.log('🔍 Validating face in image...');
+        const hasFace = await validateFaceInImage(img);
+        
+        if (hasFace) {
+          console.log('✅ Face detected in image');
+          setUploadedImage(imageDataUrl);
+          setError(null);
+          console.log('✅ Upload state updated');
+        } else {
+          console.log('❌ No face detected in image');
+          setError('❌ No face detected in this image. Please select a photo with a clear face.');
+          setUploadedImage(null);
+          // Clear the file input
+          event.target.value = '';
+        }
+      };
+      
+      img.onerror = () => {
+        setError('❌ Failed to load image. Please try another file.');
+        setUploadedImage(null);
+        event.target.value = '';
+      };
+      
+      img.src = imageDataUrl;
+    };
+    
+    reader.onerror = () => {
+      setError('❌ Failed to read file. Please try again.');
+      setUploadedImage(null);
+    };
+    
+    reader.readAsDataURL(file);
+  };
+
+  // Capture image from camera
   const captureImage = () => {
     if (!videoRef.current || !canvasRef.current) return null;
 
@@ -141,28 +288,43 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
     return imageDataUrl;
   };
 
-  // Analyze emotion
+  // Analyze emotion for both camera and uploaded images
   const analyzeEmotion = async () => {
+    console.log('🧠 Starting emotion analysis...', { useCamera, uploadedImage: !!uploadedImage });
     setIsScanning(true);
     setError(null);
     
-    // Stop live preview
-    if (previewIntervalRef.current) {
-      clearInterval(previewIntervalRef.current);
-    }
-    setShowLiveEmotions(false);
-    
     try {
-      const imageData = captureImage();
-      if (!imageData) {
-        throw new Error('Failed to capture image');
+      let imageData = null;
+      
+      if (useCamera) {
+        console.log('📷 Using camera mode');
+        // Stop live preview for camera mode
+        if (previewIntervalRef.current) {
+          clearInterval(previewIntervalRef.current);
+        }
+        setShowLiveEmotions(false);
+        
+        imageData = captureImage();
+        if (!imageData) {
+          throw new Error('Failed to capture image from camera');
+        }
+      } else {
+        console.log('🖼️ Using upload mode');
+        // Use uploaded image
+        if (!uploadedImage) {
+          throw new Error('No image selected');
+        }
+        imageData = uploadedImage;
+        // Set captured image to show processing state
+        setCapturedImage(uploadedImage);
       }
 
+      console.log('⏳ Processing image...');
       // Simulate processing
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       const result = getRandomEmotionAnalysis();
-      setEmotionResult(result);
       
       // Try to save emotion data to Firestore (without image for now due to CORS)
       try {
@@ -186,13 +348,26 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
       result.storageMethod = 'local_with_firestore_backup';
       result.storageNote = 'Data processed locally with secure cloud backup';
       
-      if (onEmotionDetected) {
-        onEmotionDetected(result);
+      // Set the emotion result to show in UI
+      setEmotionResult(result);
+      
+      // For upload mode, directly pass data to parent and close modal
+      if (!useCamera && onEmotionDetected) {
+        console.log('📤 Upload mode: Directly passing emotion result to parent:', result);
+        setTimeout(() => {
+          onEmotionDetected(result);
+          if (onClose) {
+            onClose();
+          }
+        }, 1500); // Small delay to show the result briefly
       }
+      
     } catch (err) {
       console.error('Emotion analysis error:', err);
-      setError('Emotion analysis failed. Please try again.');
-      setTimeout(() => startLivePreview(), 500);
+      setError(err.message || 'Emotion analysis failed. Please try again.');
+      if (useCamera) {
+        setTimeout(() => startLivePreview(), 500);
+      }
     } finally {
       setIsScanning(false);
     }
@@ -203,7 +378,12 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
     setCapturedImage(null);
     setEmotionResult(null);
     setError(null);
-    setTimeout(() => startLivePreview(), 500);
+    if (useCamera) {
+      setTimeout(() => startLivePreview(), 500);
+    } else {
+      // In upload mode, keep the uploaded image but reset other states
+      // setUploadedImage(null); // Keep the uploaded image for retry
+    }
   };
 
   // Close with emotion data
@@ -257,9 +437,29 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
     }
   };
 
-  // Initialize camera on mount
+  // Load face-api models on component mount
   useEffect(() => {
-    startCamera();
+    loadFaceAPI();
+  }, []);
+
+  // Initialize camera when camera mode is selected
+  useEffect(() => {
+    if (useCamera) {
+      startCamera();
+    } else {
+      // Stop camera when switching to upload mode
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+        setStream(null);
+        setCameraReady(false);
+      }
+      if (previewIntervalRef.current) {
+        clearInterval(previewIntervalRef.current);
+      }
+      // Clear any camera errors when switching to upload mode
+      setError(null);
+    }
     
     return () => {
       if (previewIntervalRef.current) {
@@ -269,11 +469,11 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, []); // Empty dependency array
+  }, [useCamera]); // Depend on useCamera
 
-  // Start live preview when camera is ready
+  // Start live preview when camera is ready (only for camera mode)
   useEffect(() => {
-    if (cameraReady && !isScanning && !capturedImage && !emotionResult) {
+    if (useCamera && cameraReady && !isScanning && !capturedImage && !emotionResult) {
       setTimeout(() => startLivePreview(), 1000);
     }
     
@@ -282,49 +482,116 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
         clearInterval(previewIntervalRef.current);
       }
     };
-  }, [cameraReady, isScanning, capturedImage, emotionResult]);
+  }, [useCamera, cameraReady, isScanning, capturedImage, emotionResult]);
 
   return (
     <div className="face-scanner-overlay">
       <div className="face-scanner-modal">
         <div className="face-scanner-header">
-          <h3>🎭 Simple Emotion Detection</h3>
-          <div className="security-badge">🔒 100% Local Processing</div>
-          <button onClick={handleCloseOnly} className="close-button">×</button>
+          <div className="header-left">
+            <h3>🎭 Simple Emotion Detection</h3>
+          </div>
+          
+          <div className="mode-switcher">
+            <button 
+              onClick={() => setUseCamera(true)} 
+              className={useCamera ? 'mode-btn active' : 'mode-btn'}
+            >
+              📷 Camera
+            </button>
+            <button 
+              onClick={() => setUseCamera(false)} 
+              className={!useCamera ? 'mode-btn active' : 'mode-btn'}
+            >
+              🖼️ Upload
+            </button>
+          </div>
+          
+          <div className="header-right">
+            <button onClick={handleCloseOnly} className="close-button">×</button>
+          </div>
         </div>
         
         <div className="face-scanner-content">
           {!capturedImage && !emotionResult && (
             <>
-              <div className="camera-container">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="camera-video"
-                />
-                <canvas ref={canvasRef} style={{ display: 'none' }} />
-                <canvas ref={liveCanvasRef} style={{ display: 'none' }} />
-                
-
-              </div>
-              
-              <div className="instructions">
-                <p>🔒 <strong>Privacy First:</strong> Your image is processed locally</p>
-                <p>📷 Position your face in the camera frame</p>
-                <p>😊 Look directly at the camera</p>
-                <p>✨ Click "Analyze Emotion" when ready</p>
-              </div>
+              {useCamera ? (
+                <div className="camera-container">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="camera-video"
+                  />
+                  <canvas ref={canvasRef} style={{ display: 'none' }} />
+                  <canvas ref={liveCanvasRef} style={{ display: 'none' }} />
+                </div>
+              ) : (
+                <div className="upload-container">
+                  <div className="upload-area">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      id="image-upload"
+                      style={{ display: 'none' }}
+                    />
+                    <label htmlFor="image-upload" className="upload-label">
+                      {uploadedImage ? (
+                        <img src={uploadedImage} alt="Uploaded" className="uploaded-preview" />
+                      ) : (
+                        <div className="upload-placeholder">
+                          <div className="upload-icon">👤</div>
+                          <p>Click to select face photo</p>
+                          <p className="upload-hint">Only images with clear faces</p>
+                          <p className="upload-requirement">📋 Requirements: Clear face, good lighting</p>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                </div>
+              )}
               
               <div className="scanner-controls">
                 <button 
                   onClick={analyzeEmotion} 
-                  disabled={isScanning || !cameraReady}
-                  className="scan-button"
+                  disabled={isScanning || (useCamera && !cameraReady) || (!useCamera && !uploadedImage)}
+                  className={`scan-button ${(useCamera && !cameraReady) || (!useCamera && !uploadedImage) ? 'disabled' : ''}`}
                 >
-                  {isScanning ? '🔄 Analyzing...' : '🧠 Analyze Emotion'}
+                  {isScanning ? '🔄 Analyzing...' : 
+                   useCamera && !cameraReady ? '📷 Starting Camera...' :
+                   !useCamera && !uploadedImage ? '📁 Select Image First' :
+                   '🧠 Analyze Emotion'}
                 </button>
+                
+                {/* Debug info to see what's happening */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div style={{fontSize: '12px', marginTop: '8px', color: '#666'}}>
+                    Mode: {useCamera ? 'Camera' : 'Upload'} | 
+                    Camera Ready: {cameraReady.toString()} | 
+                    Image Uploaded: {!!uploadedImage ? 'Yes' : 'No'} |
+                    Scanning: {isScanning.toString()}
+                  </div>
+                )}
+              </div>
+
+              <div className="instructions">
+                <p>🔒 <strong>Privacy First:</strong> Your image is processed locally</p>
+                {useCamera ? (
+                  <>
+                    <p>📷 Position your face in the camera frame</p>
+                    <p>😊 Look directly at the camera</p>
+                    <p>✨ Click "Analyze Emotion" when ready</p>
+                  </>
+                ) : (
+                  <>
+                    <p>👤 Select a photo with a clear, visible face</p>
+                    <p>😊 Front-facing photos work best</p>
+                    <p>🚫 Images without faces will be rejected</p>
+                    <p>✨ Click button above after selecting image</p>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -342,23 +609,50 @@ const SimpleFaceScanner = ({ onEmotionDetected, onClose }) => {
 
           {emotionResult && (
             <div className="emotion-results">
-              <img src={capturedImage} alt="Analyzed" className="captured-image" />
-              
-              <div className="scan-success">
+              <div className="result-header">
                 <h4>✅ Emotion Scan Complete</h4>
-                <p>Primary emotion detected: <strong>{emotionResult.dominant_emotion.charAt(0).toUpperCase() + 
-                     emotionResult.dominant_emotion.slice(1)}</strong></p>
-                <p className="security-note">🔒 Analysis completed locally on your device</p>
               </div>
               
-              <div className="result-actions">
-                <button onClick={handleRetry} className="retry-button">
-                  🔄 Scan Again
-                </button>
-                <button onClick={handleClose} className="use-result-button">
-                  ✅ Use This Result
-                </button>
+              <div className="result-image-container">
+                <img src={capturedImage} alt="Analyzed" className="result-image" />
               </div>
+              
+              <div className="emotion-details">
+                <div className="primary-emotion">
+                  <h5>Primary Emotion Detected:</h5>
+                  <div className="emotion-tag">
+                    {emotionResult.dominant_emotion.charAt(0).toUpperCase() + 
+                     emotionResult.dominant_emotion.slice(1)}
+                  </div>
+                </div>
+                
+                <div className="confidence-level">
+                  <p>Confidence: <strong>{emotionResult.confidence}%</strong></p>
+                </div>
+                
+                <div className="security-note">
+                  🔒 Analysis completed locally on your device
+                </div>
+              </div>
+              
+              {useCamera && (
+                <div className="result-actions">
+                  <button onClick={handleRetry} className="retry-button">
+                    🔄 Scan Again
+                  </button>
+                  <button onClick={handleClose} className="use-result-button">
+                    ✅ Use This Result
+                  </button>
+                </div>
+              )}
+              
+              {!useCamera && (
+                <div className="upload-success-message">
+                  <div className="auto-transfer-note">
+                    ⏳ Automatically transferring data to form...
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
