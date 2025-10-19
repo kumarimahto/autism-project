@@ -1,17 +1,17 @@
-// Firebase initialization (client)
+
 import { initializeApp } from 'firebase/app'
 import { getFirestore, collection, addDoc } from 'firebase/firestore'
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'
 import { getStorage, ref, uploadString, uploadBytes, getDownloadURL } from 'firebase/storage'
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyApPlFF2RqfQmwP9mCSBE9bOhQaG74l2hg',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'autism-3f89f.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'autism-3f89f',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'autism-3f89f.firebasestorage.app',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '789412157063',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:789412157063:web:663f5480a3b61ba7e44a22',
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-KSKPXEXYKT'
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ''
 }
 
 const app = initializeApp(firebaseConfig)
@@ -32,7 +32,7 @@ signInAnonymously(auth)
     console.warn('Firebase anonymous sign-in failed:', anonSignError)
   })
 
-// Optional: expose auth state change for debugging in console
+
 onAuthStateChanged(auth, (user) => {
   if (user) {
     console.log('Firebase auth state: signed in (uid=', user.uid, ')')
@@ -53,7 +53,7 @@ export async function saveResult(result) {
   }
 }
 
-// Save face image to Firebase Storage
+
 export async function saveFaceImage(imageDataUrl, emotionData) {
   try {
     console.log('🔄 Firebase Auth Status:', { signedIn: anonSignedIn, error: anonSignError });
@@ -70,13 +70,13 @@ export async function saveFaceImage(imageDataUrl, emotionData) {
       }
     }
     
-    // Check if we have proper permissions by testing auth
+  
     const currentUser = auth.currentUser;
     if (!currentUser) {
       throw new Error('No authenticated user found');
     }
 
-    // Create a unique filename with timestamp and random ID
+    
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const randomId = Math.random().toString(36).substring(2, 15);
     const fileName = `face-scans/${timestamp}_${randomId}.jpg`;
@@ -86,13 +86,13 @@ export async function saveFaceImage(imageDataUrl, emotionData) {
     // Create storage reference
     const storageRef = ref(storage, fileName);
     
-    // Convert data URL to blob for better upload compatibility
+   
     const response = await fetch(imageDataUrl);
     const blob = await response.blob();
     
     console.log('📤 Uploading image blob...');
     
-    // Upload using blob instead of data URL (better CORS compatibility)
+   
     const snapshot = await uploadBytes(storageRef, blob, {
       contentType: 'image/jpeg',
       customMetadata: {
@@ -101,10 +101,10 @@ export async function saveFaceImage(imageDataUrl, emotionData) {
       }
     });
     
-    // Get download URL
+
     const downloadURL = await getDownloadURL(snapshot.ref);
     
-    // Save face scan data to Firestore with image reference
+
     const faceScansCol = collection(db, 'face_scans');
     const docData = {
       imageUrl: downloadURL,
@@ -135,14 +135,14 @@ export async function saveFaceImage(imageDataUrl, emotionData) {
   }
 }
 
-// Alternative: Save only emotion data without image (for CORS issues)
+
 export async function saveEmotionDataOnly(emotionData) {
   try {
     if (!anonSignedIn) {
       throw new Error('Firebase authentication required');
     }
 
-    // Save only emotion analysis to Firestore
+
     const emotionCol = collection(db, 'emotion_analyses');
     const docData = {
       emotionData: emotionData,
