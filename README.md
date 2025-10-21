@@ -235,13 +235,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **React Community**: Frontend framework and ecosystem
 - **Autism Research Community**: Guidance on assessment methodologies
 
-## 📞 Support
 
-For technical support or questions:
-- 💬 Issues: GitHub Issues tab
-- 📚 Documentation: See project files
 
----
 
 **⚠️ Important Notice**: This tool is designed to assist in autism screening and therapy planning. It should not replace professional medical diagnosis or treatment. Always consult with qualified healthcare professionals for proper assessment and care.
 
